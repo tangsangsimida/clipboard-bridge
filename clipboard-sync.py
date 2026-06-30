@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 from argparse import ArgumentParser
+from enum import Enum
 from pathlib import Path
 
 # ─── Configuration (override via environment variables) ──────────────────────
@@ -125,6 +126,12 @@ def fast_hash(data: bytes) -> str:
 
 # ─── Sync functions ──────────────────────────────────────────────────────────
 
+class SyncDirection(Enum):
+    NONE = ""
+    X11_TO_WL = "x2w"
+    WL_TO_X11 = "w2x"
+
+
 class ClipState:
     """Tracks clipboard state with hash-based change detection."""
 
@@ -134,7 +141,7 @@ class ClipState:
         self.wl_types_hash = ""
         self.x11_img_hash = ""
         self.wl_img_hash = ""
-        self.lock = ""  # "x2w" or "w2x" during sync
+        self.lock = SyncDirection.NONE
 
     def init(self):
         """Read initial clipboard state."""
@@ -154,13 +161,13 @@ class ClipState:
         if h == self.wl_hash:
             return
         log.debug("URI→WL: %s", clean.strip().split("\n")[0])
-        self.lock = "x2w"
+        self.lock = SyncDirection.X11_TO_WL
         self.wl_hash = h
         # Update source hash (X11 side) to prevent feedback loop
         x11_content = clean.replace("\n", "\r\n") + "\r\n"
         self.x11_hash = fast_hash(x11_content.encode())
         wl_copy(wl_content.encode(), GNOME_FILE_MIME)
-        self.lock = ""
+        self.lock = SyncDirection.NONE
 
     def sync_text_to_wayland(self, text: str):
         """Sync plain text to Wayland."""
@@ -168,11 +175,11 @@ class ClipState:
         if h == self.wl_hash:
             return
         log.debug("Text→WL: %s", text[:50])
-        self.lock = "x2w"
+        self.lock = SyncDirection.X11_TO_WL
         self.wl_hash = h
         self.x11_hash = h
         wl_copy(text.encode())
-        self.lock = ""
+        self.lock = SyncDirection.NONE
 
     def sync_image_to_wayland(self, mime: str):
         """Sync image data from X11 to Wayland."""
@@ -183,11 +190,11 @@ class ClipState:
         if h == self.x11_img_hash:
             return
         log.debug("Image→WL: %s (%d bytes)", mime, len(data))
-        self.lock = "x2w"
+        self.lock = SyncDirection.X11_TO_WL
         self.x11_img_hash = h
         self.wl_img_hash = h
         wl_copy(data, mime)
-        self.lock = ""
+        self.lock = SyncDirection.NONE
 
     def sync_uri_to_x11(self, uris: str):
         """Sync file URIs to X11 as text/uri-list."""
@@ -197,12 +204,12 @@ class ClipState:
         if h == self.x11_hash:
             return
         log.debug("URI→X11: %s", clean.strip().split("\n")[0])
-        self.lock = "w2x"
+        self.lock = SyncDirection.WL_TO_X11
         self.x11_hash = h
         # Update source hash (Wayland side) to prevent feedback loop
         self.wl_hash = fast_hash(uris.encode())
         xclip_set(x11_content.encode(), URI_LIST_MIME)
-        self.lock = ""
+        self.lock = SyncDirection.NONE
 
     def sync_text_to_x11(self, text: str):
         """Sync plain text to X11."""
@@ -210,11 +217,11 @@ class ClipState:
         if h == self.x11_hash:
             return
         log.debug("Text→X11: %s", text[:50])
-        self.lock = "w2x"
+        self.lock = SyncDirection.WL_TO_X11
         self.x11_hash = h
         self.wl_hash = h
         xclip_set(text.encode(), "UTF8_STRING")
-        self.lock = ""
+        self.lock = SyncDirection.NONE
 
     def sync_image_to_x11(self, mime: str):
         """Sync image data from Wayland to X11."""
@@ -225,11 +232,11 @@ class ClipState:
         if h == self.wl_img_hash:
             return
         log.debug("Image→X11: %s (%d bytes)", mime, len(data))
-        self.lock = "w2x"
+        self.lock = SyncDirection.WL_TO_X11
         self.wl_img_hash = h
         self.x11_img_hash = h
         xclip_set(data, mime)
-        self.lock = ""
+        self.lock = SyncDirection.NONE
 
 
 def resolve_file_path(path: str) -> str | None:
@@ -271,7 +278,7 @@ def main_loop(state: ClipState):
     interval = POLL_MIN_INTERVAL
 
     while True:
-        if state.lock:
+        if state.lock != SyncDirection.NONE:
             time.sleep(0.2)
             continue
 
