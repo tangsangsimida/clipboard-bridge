@@ -361,12 +361,26 @@ def main_loop(state: ClipState):
 
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
+def check_dependencies() -> None:
+    """Check that required external tools are installed."""
+    missing = []
+    for cmd in ("xclip", "wl-copy", "wl-paste"):
+        if subprocess.run(["which", cmd], capture_output=True).returncode != 0:
+            missing.append(cmd)
+    if missing:
+        print(f"错误: 缺少依赖: {', '.join(missing)}", file=sys.stderr)
+        print("请安装: sudo pacman -S xclip wl-clipboard  (Arch)", file=sys.stderr)
+        print("        sudo apt install xclip wl-clipboard  (Debian/Ubuntu)", file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     parser = ArgumentParser(description="X11 ↔ Wayland Clipboard Bridge")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
     parser.add_argument("-l", "--log-file", help="Log to file (e.g. ~/.local/state/clipboard-bridge.log)")
     args = parser.parse_args()
 
+    check_dependencies()
     setup_logging(verbose=args.verbose, log_file=args.log_file)
     log.info("Clipboard bridge starting")
 
