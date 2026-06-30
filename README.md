@@ -14,6 +14,8 @@ X11 ↔ Wayland 剪贴板双向同步工具，支持**文本**、**文件**和**
 - **自适应轮询**：无变化时自动降低检测频率，减少 CPU 占用
 - **防反馈循环**：基于 hash 的状态管理，避免 X11/Wayland 格式差异导致的无限循环
 - **日志支持**：可选 debug 日志输出到文件
+- **依赖检查**：启动时自动检查 xclip/wl-clipboard 是否安装
+- **优雅退出**：收到信号后等待当前同步完成再退出
 
 ## 依赖
 
@@ -61,11 +63,29 @@ chmod +x uninstall.sh
 # 启用 debug 日志（输出到 stderr）
 clipboard-sync.py -v
 
-# 日志写入文件
-clipboard-sync.py -l ~/.local/state/clipboard-bridge.log
+# 日志写入默认路径 ~/.local/state/clipboard-bridge.log
+clipboard-sync.py -l
+
+# 日志写入指定路径
+clipboard-sync.py -l /path/to/logfile.log
 
 # 同时启用 debug 和文件日志
-clipboard-sync.py -v -l ~/.local/state/clipboard-bridge.log
+clipboard-sync.py -v -l
+```
+
+### 环境变量
+
+轮询间隔可通过环境变量调整：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `CB_POLL_MIN` | 0.3 | 最小轮询间隔（秒） |
+| `CB_POLL_MAX` | 2.0 | 最大轮询间隔（秒） |
+| `CB_POLL_STEP` | 0.2 | 每次空闲递增（秒） |
+
+```bash
+# 示例：降低 CPU 占用（增大轮询间隔）
+CB_POLL_MIN=0.5 CB_POLL_MAX=5.0 clipboard-sync.py
 ```
 
 ### 验证
