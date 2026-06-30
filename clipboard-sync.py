@@ -21,6 +21,7 @@ IMG_MIME = "image/png"
 GNOME_FILE_MIME = "x-special/gnome-copied-files"
 URI_LIST_MIME = "text/uri-list"
 HOME = Path.home()
+XDG_STATE_HOME = Path(os.environ.get("XDG_STATE_HOME", HOME / ".local" / "state"))
 
 
 def _env_float(key: str, default: float, min_val: float = 0.0) -> float:
@@ -377,7 +378,7 @@ def check_dependencies() -> None:
 def main():
     parser = ArgumentParser(description="X11 ↔ Wayland Clipboard Bridge")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
-    parser.add_argument("-l", "--log-file", help="Log to file (e.g. ~/.local/state/clipboard-bridge.log)")
+    parser.add_argument("-l", "--log-file", nargs="?", const=str(XDG_STATE_HOME / "clipboard-bridge.log"), help="Log to file (default: ~/.local/state/clipboard-bridge.log when flag is given without value)")
     args = parser.parse_args()
 
     check_dependencies()
