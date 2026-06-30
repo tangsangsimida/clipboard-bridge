@@ -13,6 +13,8 @@ import sys
 import threading
 import time
 from argparse import ArgumentParser
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
@@ -112,6 +114,15 @@ def xclip_set(data: bytes, mime: str) -> None:
     run(["xclip", "-selection", "clipboard", "-t", mime], input_data=data, capture=False, retries=2)
 
 
+def xclip_targets_and_text() -> tuple[list[str], bytes]:
+    """Read X11 targets and UTF8_STRING in one shell call (2 subprocess -> 1)."""
+    combined = run(["sh", "-c", "xclip -selection clipboard -t TARGETS -o && echo '---SEP---' && xclip -selection clipboard -o"])
+    parts = combined.split(b"---SEP---\n", 1)
+    targets = parts[0].decode("utf-8", errors="replace").splitlines()
+    content = parts[1] if len(parts) > 1 else b""
+    return targets, content
+
+
 def wl_paste_types() -> list[str]:
     raw = run(["wl-paste", "--list-types"])
     return raw.decode("utf-8", errors="replace").splitlines()
@@ -147,6 +158,96 @@ def fast_hash(data: bytes) -> str:
     return f"{len(data)}:{hashlib.md5(data).hexdigest()}"
 
 
+# ─── Clipboard watcher abstraction ───────────────────────────────────────────
+
+@dataclass
+class ClipboardContent:
+    """Unified clipboard content representation."""
+    text: bytes = b""
+    types: list[str] = field(default_factory=list)
+    uris: str = ""
+    image_data: bytes = b""
+    image_mime: str = ""
+
+    @property
+    def hash(self) -> str:
+        return f"{len(self.text)}:{hashlib.md5(self.text).hexdigest()}"
+
+    @property
+    def types_hash(self) -> str:
+        return f"{len(self.types)}:{hashlib.md5(chr(10).join(self.types).encode()).hexdigest()}"
+
+
+class ClipboardWatcher(ABC):
+    """Abstract clipboard interface."""
+
+    @abstractmethod
+    def read(self) -> ClipboardContent: ...
+
+    @abstractmethod
+    def write_text(self, text: bytes) -> None: ...
+
+    @abstractmethod
+    def write_uri(self, uris: bytes) -> None: ...
+
+    @abstractmethod
+    def write_image(self, data: bytes, mime: str) -> None: ...
+
+
+class X11ClipboardWatcher(ClipboardWatcher):
+    """X11 clipboard via xclip."""
+
+    def read(self) -> ClipboardContent:
+        targets, text = xclip_targets_and_text()
+        c = ClipboardContent(text=text, types=targets)
+        if URI_LIST_MIME in targets:
+            c.uris = xclip_get(URI_LIST_MIME).decode("utf-8", errors="replace")
+        elif img := detect_x11_image(targets):
+            c.image_data = xclip_get(img)
+            c.image_mime = img
+        elif uris := detect_x11_files(text.decode("utf-8", errors="replace")):
+            c.uris = uris
+        return c
+
+    def write_text(self, text: bytes) -> None:
+        xclip_set(text, "UTF8_STRING")
+
+    def write_uri(self, uris: bytes) -> None:
+        xclip_set(uris, URI_LIST_MIME)
+
+    def write_image(self, data: bytes, mime: str) -> None:
+        xclip_set(data, mime)
+
+
+class WaylandClipboardWatcher(ClipboardWatcher):
+    """Wayland clipboard via wl-copy/wl-paste."""
+
+    def read(self) -> ClipboardContent:
+        types, text = wl_paste_types_and_text()
+        c = ClipboardContent(text=text, types=types)
+        img = next((t for t in types if t.startswith("image/")), None)
+        if img:
+            c.image_data = wl_paste(img)
+            c.image_mime = img
+        elif GNOME_FILE_MIME in types:
+            raw = wl_paste(GNOME_FILE_MIME).decode("utf-8", errors="replace")
+            lines = raw.strip().split("\n")
+            if lines and lines[0].strip() in ("copy", "cut"):
+                c.uris = "\n".join(lines[1:])
+        elif URI_LIST_MIME in types:
+            c.uris = wl_paste(URI_LIST_MIME).decode("utf-8", errors="replace")
+        return c
+
+    def write_text(self, text: bytes) -> None:
+        wl_copy(text)
+
+    def write_uri(self, uris: bytes) -> None:
+        wl_copy(uris, GNOME_FILE_MIME)
+
+    def write_image(self, data: bytes, mime: str) -> None:
+        wl_copy(data, mime)
+
+
 # ─── Sync functions ──────────────────────────────────────────────────────────
 
 class SyncDirection(Enum):
@@ -158,7 +259,9 @@ class SyncDirection(Enum):
 class ClipState:
     """Tracks clipboard state with hash-based change detection."""
 
-    def __init__(self):
+    def __init__(self, x11: X11ClipboardWatcher, wl: WaylandClipboardWatcher):
+        self.x11 = x11
+        self.wl = wl
         self.x11_hash = ""
         self.wl_hash = ""
         self.wl_types_hash = ""
@@ -168,12 +271,11 @@ class ClipState:
 
     def init(self):
         """Read initial clipboard state."""
-        x11 = xclip_get("UTF8_STRING")
-        wl = wl_paste(no_newline=True)
-        wl_types = "\n".join(wl_paste_types())
-        self.x11_hash = fast_hash(x11)
-        self.wl_hash = fast_hash(wl)
-        self.wl_types_hash = fast_hash(wl_types.encode())
+        x11_c = self.x11.read()
+        wl_c = self.wl.read()
+        self.x11_hash = x11_c.hash
+        self.wl_hash = wl_c.hash
+        self.wl_types_hash = wl_c.types_hash
         log.debug("Init: x11=%s wl=%s types=%s", self.x11_hash[:8], self.wl_hash[:8], self.wl_types_hash[:8])
 
     def sync_uri_to_wayland(self, uris: str):
@@ -185,7 +287,7 @@ class ClipState:
             return
         log.debug("URI→WL: %s", clean.strip().split("\n")[0])
         self.lock = SyncDirection.X11_TO_WL
-        wl_copy(wl_content.encode(), GNOME_FILE_MIME)
+        self.wl.write_uri(wl_content.encode())
         self.wl_hash = h
         # Update source hash (X11 side) to prevent feedback loop
         x11_content = clean.replace("\n", "\r\n") + "\r\n"
@@ -199,7 +301,7 @@ class ClipState:
             return
         log.debug("Text→WL: %s", text[:50])
         self.lock = SyncDirection.X11_TO_WL
-        wl_copy(text.encode())
+        self.wl.write_text(text.encode())
         self.wl_hash = h
         self.x11_hash = h
         self.lock = SyncDirection.NONE
@@ -228,7 +330,7 @@ class ClipState:
             return
         log.debug("URI→X11: %s", clean.strip().split("\n")[0])
         self.lock = SyncDirection.WL_TO_X11
-        xclip_set(x11_content.encode(), URI_LIST_MIME)
+        self.x11.write_uri(x11_content.encode())
         self.x11_hash = h
         # Update source hash (Wayland side) to prevent feedback loop
         self.wl_hash = fast_hash(uris.encode())
@@ -241,7 +343,7 @@ class ClipState:
             return
         log.debug("Text→X11: %s", text[:50])
         self.lock = SyncDirection.WL_TO_X11
-        xclip_set(text.encode(), "UTF8_STRING")
+        self.x11.write_text(text.encode())
         self.x11_hash = h
         self.wl_hash = h
         self.lock = SyncDirection.NONE
@@ -305,60 +407,35 @@ def detect_x11_image(targets: list[str]) -> str | None:
 
 def detect_x11(state: ClipState) -> bool:
     """Detect X11 clipboard changes and sync to Wayland. Returns True if changed."""
-    x11_raw = xclip_get("UTF8_STRING")
-    x11_hash = fast_hash(x11_raw)
-
-    if x11_hash == state.x11_hash:
+    c = state.x11.read()
+    if c.hash == state.x11_hash:
         return False
-
-    targets = xclip_get_targets()
-    x11_text = x11_raw.decode("utf-8", errors="replace")
-
-    if URI_LIST_MIME in targets:
-        uris = xclip_get(URI_LIST_MIME).decode("utf-8", errors="replace")
-        if uris.strip():
-            state.sync_uri_to_wayland(uris)
-    elif img_mime := detect_x11_image(targets):
-        state.sync_image_to_wayland(img_mime)
-    elif file_uris := detect_x11_files(x11_text):
-        state.sync_uri_to_wayland(file_uris)
+    if c.uris:
+        state.sync_uri_to_wayland(c.uris)
+    elif c.image_data:
+        state.sync_image_to_wayland(c.image_mime)
+    elif uris := detect_x11_files(c.text.decode("utf-8", errors="replace")):
+        state.sync_uri_to_wayland(uris)
     else:
-        state.sync_text_to_wayland(x11_text)
-
-    state.x11_hash = x11_hash
+        state.sync_text_to_wayland(c.text.decode("utf-8", errors="replace"))
+    state.x11_hash = c.hash
     return True
 
 
 def detect_wayland(state: ClipState) -> bool:
     """Detect Wayland clipboard changes and sync to X11. Returns True if changed."""
-    wl_types, wl_raw = wl_paste_types_and_text()
-    wl_types_hash = fast_hash("\n".join(wl_types).encode())
-    wl_hash = fast_hash(wl_raw)
-
-    if wl_types_hash == state.wl_types_hash and wl_hash == state.wl_hash:
+    c = state.wl.read()
+    if c.types_hash == state.wl_types_hash and c.hash == state.wl_hash:
         return False
-
-    img_type = next((t for t in wl_types if t.startswith("image/")), None)
-    if img_type:
-        state.sync_image_to_x11(img_type)
-    elif GNOME_FILE_MIME in wl_types:
-        raw = wl_paste(GNOME_FILE_MIME).decode("utf-8", errors="replace")
-        lines = raw.strip().split("\n")
-        if lines and lines[0].strip() in ("copy", "cut"):
-            uris = "\n".join(lines[1:])
-            if uris.strip():
-                state.sync_uri_to_x11(uris)
-        else:
-            log.debug("Invalid GNOME format: %s", raw[:50])
-    elif URI_LIST_MIME in wl_types:
-        uris = wl_paste(URI_LIST_MIME).decode("utf-8", errors="replace")
-        if uris.strip():
-            state.sync_uri_to_x11(uris)
+    if c.image_data:
+        img = next((t for t in c.types if t.startswith("image/")), "image/png")
+        state.sync_image_to_x11(img)
+    elif c.uris:
+        state.sync_uri_to_x11(c.uris)
     else:
-        state.sync_text_to_x11(wl_raw.decode("utf-8", errors="replace"))
-
-    state.wl_hash = wl_hash
-    state.wl_types_hash = wl_types_hash
+        state.sync_text_to_x11(c.text.decode("utf-8", errors="replace"))
+    state.wl_hash = c.hash
+    state.wl_types_hash = c.types_hash
     return True
 
 
@@ -418,7 +495,7 @@ def main():
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    state = ClipState()
+    state = ClipState(X11ClipboardWatcher(), WaylandClipboardWatcher())
     state.init()
     main_loop(state, shutdown_event)
 
