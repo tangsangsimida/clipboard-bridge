@@ -292,9 +292,13 @@ def main_loop(state: ClipState):
             elif GNOME_FILE_MIME in wl_types:
                 raw = wl_paste(GNOME_FILE_MIME).decode("utf-8", errors="replace")
                 lines = raw.strip().split("\n")
-                uris = "\n".join(lines[1:]) if len(lines) > 1 else ""
-                if uris.strip():
-                    state.sync_uri_to_x11(uris)
+                # Validate GNOME format: first line must be "copy" or "cut"
+                if lines and lines[0].strip() in ("copy", "cut"):
+                    uris = "\n".join(lines[1:])
+                    if uris.strip():
+                        state.sync_uri_to_x11(uris)
+                else:
+                    log.debug("Invalid GNOME format: %s", raw[:50])
             elif URI_LIST_MIME in wl_types:
                 uris = wl_paste(URI_LIST_MIME).decode("utf-8", errors="replace")
                 if uris.strip():
