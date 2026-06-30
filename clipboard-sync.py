@@ -6,6 +6,7 @@ Bidirectional sync for text, files, and images between X11 and Wayland clipboard
 
 import hashlib
 import logging
+import os
 import signal
 import subprocess
 import sys
@@ -13,11 +14,11 @@ import time
 from argparse import ArgumentParser
 from pathlib import Path
 
-# ─── Configuration ───────────────────────────────────────────────────────────
+# ─── Configuration (override via environment variables) ──────────────────────
 
-POLL_MIN_INTERVAL = 0.3   # seconds, minimum polling interval
-POLL_MAX_INTERVAL = 2.0   # seconds, maximum polling interval when idle
-POLL_STEP = 0.2           # seconds, increment per idle cycle
+POLL_MIN_INTERVAL = float(os.environ.get("CB_POLL_MIN", "0.3"))
+POLL_MAX_INTERVAL = float(os.environ.get("CB_POLL_MAX", "2.0"))
+POLL_STEP = float(os.environ.get("CB_POLL_STEP", "0.2"))
 IMG_MIME = "image/png"
 GNOME_FILE_MIME = "x-special/gnome-copied-files"
 URI_LIST_MIME = "text/uri-list"
