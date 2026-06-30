@@ -216,7 +216,7 @@ class X11ClipboardWatcher(ClipboardWatcher):
         xclip_set(uris, URI_LIST_MIME)
 
     def write_image(self, data: bytes, mime: str) -> None:
-        self.x11.write_image(data, mime)
+        xclip_set(data, mime)
 
 
 class WaylandClipboardWatcher(ClipboardWatcher):
@@ -245,7 +245,7 @@ class WaylandClipboardWatcher(ClipboardWatcher):
         wl_copy(uris, GNOME_FILE_MIME)
 
     def write_image(self, data: bytes, mime: str) -> None:
-        self.wl.write_image(data, mime)
+        wl_copy(data, mime)
 
 
 # ─── Sync functions ──────────────────────────────────────────────────────────
@@ -316,7 +316,7 @@ class ClipState:
             return
         log.debug("Image→WL: %s (%d bytes)", mime, len(data))
         self.lock = SyncDirection.X11_TO_WL
-        self.wl.write_image(data, mime)
+        wl_copy(data, mime)
         self.x11_img_hash = h
         self.wl_img_hash = h
         self.lock = SyncDirection.NONE
@@ -358,7 +358,7 @@ class ClipState:
             return
         log.debug("Image→X11: %s (%d bytes)", mime, len(data))
         self.lock = SyncDirection.WL_TO_X11
-        self.x11.write_image(data, mime)
+        xclip_set(data, mime)
         self.wl_img_hash = h
         self.x11_img_hash = h
         self.lock = SyncDirection.NONE
