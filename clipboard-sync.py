@@ -6,11 +6,9 @@ Bidirectional sync for text, files, and images between X11 and Wayland clipboard
 
 import hashlib
 import logging
-import os
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 from argparse import ArgumentParser
 from pathlib import Path
@@ -104,8 +102,6 @@ class ClipState:
         self.x11_img_hash = ""
         self.wl_img_hash = ""
         self.lock = ""  # "x2w" or "w2x" during sync
-        self.tmp_x11_img = ""
-        self.tmp_wl_img = ""
 
     def init(self):
         """Read initial clipboard state."""
@@ -324,11 +320,6 @@ def main():
     # Graceful shutdown
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
-
-    # Cleanup temp files on exit
-    import atexit
-    for tmp in ["/tmp/clipboard-bridge-x11-img", "/tmp/clipboard-bridge-wl-img"]:
-        atexit.register(lambda f=tmp: Path(f).unlink(missing_ok=True))
 
     state = ClipState()
     state.init()
