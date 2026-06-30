@@ -262,9 +262,15 @@ def resolve_file_path(path: str) -> str | None:
 
 
 def detect_x11_files(text: str) -> str | None:
-    """If all lines in text are file paths, return file:// URI list. Otherwise None."""
-    lines = [l for l in text.split("\n") if l.strip()]
+    """If all lines are file paths, return file:// URI list. Otherwise None.
+
+    Heuristic: lines must contain '/' and look like real paths (not random text).
+    """
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
     if not lines:
+        return None
+    # Require at least one '/' per line to avoid mis-detecting plain words
+    if not all("/" in line for line in lines):
         return None
     uris = []
     for line in lines:
