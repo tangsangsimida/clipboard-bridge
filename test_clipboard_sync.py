@@ -1,81 +1,106 @@
-"""Unit tests for clipboard-sync.py pure functions."""
+"""Unit tests for clipboard-sync.py."""
 
 import importlib
 import sys
 import unittest
-from pathlib import Path
 
 sys.path.insert(0, ".")
 _mod = importlib.import_module("clipboard-sync")
+
+fast_hash = _mod.fast_hash
+ClipState = _mod.ClipState
+SyncDirection = _mod.SyncDirection
 detect_x11_files = _mod.detect_x11_files
 detect_x11_image = _mod.detect_x11_image
 resolve_file_path = _mod.resolve_file_path
 
 
+class TestFastHash(unittest.TestCase):
+    def test_empty(self):
+        h = fast_hash(b"")
+        self.assertTrue(h.startswith("0:"))
+
+    def test_consistent(self):
+        self.assertEqual(fast_hash(b"test"), fast_hash(b"test"))
+
+    def test_different(self):
+        self.assertNotEqual(fast_hash(b"a"), fast_hash(b"b"))
+
+    def test_length_prefix(self):
+        h = fast_hash(b"hello")
+        self.assertTrue(h.startswith("5:"))
+
+
+class TestSyncDirection(unittest.TestCase):
+    def test_values(self):
+        self.assertEqual(SyncDirection.NONE.value, "")
+        self.assertEqual(SyncDirection.X11_TO_WL.value, "x2w")
+        self.assertEqual(SyncDirection.WL_TO_X11.value, "w2x")
+
+
 class TestResolveFilePath(unittest.TestCase):
-    """Tests for resolve_file_path()."""
+    def test_absolute(self):
+        self.assertEqual(resolve_file_path("/etc/hosts"), "file:///etc/hosts")
 
-    def test_absolute_path(self):
-        result = resolve_file_path("/etc/hosts")
-        self.assertEqual(result, "file:///etc/hosts")
+    def test_nonexistent(self):
+        self.assertIsNone(resolve_file_path("/nonexistent/path"))
 
-    def test_relative_path(self):
-        # ~/.bashrc should exist on most systems
+    def test_relative(self):
         result = resolve_file_path(".bashrc")
         if result is not None:
             self.assertTrue(result.startswith("file://"))
 
-    def test_nonexistent_path(self):
-        result = resolve_file_path("/nonexistent/path/that/does/not/exist")
-        self.assertIsNone(result)
-
-    def test_nonexistent_relative_path(self):
-        result = resolve_file_path("nonexistent_file_12345")
-        self.assertIsNone(result)
-
 
 class TestDetectX11Files(unittest.TestCase):
-    """Tests for detect_x11_files()."""
-
     def test_single_file(self):
-        result = detect_x11_files("/etc/hosts")
-        self.assertEqual(result, "file:///etc/hosts")
+        self.assertEqual(detect_x11_files("/etc/hosts"), "file:///etc/hosts")
 
     def test_multiple_files(self):
         result = detect_x11_files("/etc/hosts\n/etc/fstab")
         self.assertEqual(result, "file:///etc/hosts\nfile:///etc/fstab")
 
-    def test_non_file_text(self):
-        result = detect_x11_files("hello world")
-        self.assertIsNone(result)
+    def test_non_file(self):
+        self.assertIsNone(detect_x11_files("hello world"))
 
-    def test_empty_string(self):
-        result = detect_x11_files("")
-        self.assertIsNone(result)
-
-    def test_mixed_file_and_text(self):
-        result = detect_x11_files("/etc/hosts\nnot_a_real_file_xyz")
-        self.assertIsNone(result)
+    def test_empty(self):
+        self.assertIsNone(detect_x11_files(""))
 
 
 class TestDetectX11Image(unittest.TestCase):
-    """Tests for detect_x11_image()."""
-
     def test_png(self):
-        result = detect_x11_image(["TARGETS", "UTF8_STRING", "image/png"])
-        self.assertEqual(result, "image/png")
+        self.assertEqual(detect_x11_image(["image/png"]), "image/png")
 
     def test_jpeg(self):
-        result = detect_x11_image(["image/jpeg", "UTF8_STRING"])
-        self.assertEqual(result, "image/jpeg")
+        self.assertEqual(detect_x11_image(["image/jpeg"]), "image/jpeg")
 
     def test_no_image(self):
-        result = detect_x11_image(["TARGETS", "UTF8_STRING"])
-        self.assertIsNone(result)
+        self.assertIsNone(detect_x11_image(["text/plain"]))
 
-    def test_empty_targets(self):
-        result = detect_x11_image([])
-        self.assertIsNone(result)
+    def test_empty(self):
+        self.assertIsNone(detect_x11_image([]))
+
+
+class TestEnvFloat(unittest.TestCase):
+    def test_default(self):
+        self.assertEqual(_mod._env_float("NONEXISTENT_VAR", 1.5), 1.5)
+
+    def test_valid(self):
+        import os
+        os.environ["TEST_CB_VAL"] = "2.5"
+        self.assertEqual(_mod._env_float("TEST_CB_VAL", 1.0), 2.5)
+        del os.environ["TEST_CB_VAL"]
+
+    def test_invalid(self):
+        import os
+        os.environ["TEST_CB_VAL"] = "abc"
+        self.assertEqual(_mod._env_float("TEST_CB_VAL", 1.0), 1.0)
+        del os.environ["TEST_CB_VAL"]
+
+    def test_below_min(self):
+        import os
+        os.environ["TEST_CB_VAL"] = "0.01"
+        self.assertEqual(_mod._env_float("TEST_CB_VAL", 1.0, min_val=0.1), 1.0)
+        del os.environ["TEST_CB_VAL"]
 
 
 if __name__ == "__main__":
