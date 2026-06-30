@@ -33,11 +33,11 @@ def _env_float(key: str, default: float, min_val: float = 0.0) -> float:
     try:
         val = float(raw)
         if val < min_val:
-            log.warning("环境变量 %s=%s 小于最小值 %s，使用默认值 %s", key, raw, min_val, default)
+            print(f"警告: 环境变量 {key}={raw} 小于最小值 {min_val}，使用默认值 {default}", file=sys.stderr)
             return default
         return val
     except ValueError:
-        log.warning("环境变量 %s=%s 不是有效数字，使用默认值 %s", key, raw, default)
+        print(f"警告: 环境变量 {key}={raw} 不是有效数字，使用默认值 {default}", file=sys.stderr)
         return default
 
 
@@ -46,7 +46,7 @@ POLL_MAX_INTERVAL = _env_float("CB_POLL_MAX", 2.0, min_val=0.1)
 POLL_STEP = _env_float("CB_POLL_STEP", 0.2, min_val=0.01)
 
 if POLL_MIN_INTERVAL > POLL_MAX_INTERVAL:
-    log.warning("CB_POLL_MIN (%s) > CB_POLL_MAX (%s)，自动调整", POLL_MIN_INTERVAL, POLL_MAX_INTERVAL)
+    print(f"警告: CB_POLL_MIN ({POLL_MIN_INTERVAL}) > CB_POLL_MAX ({POLL_MAX_INTERVAL})，自动调整", file=sys.stderr)
     POLL_MIN_INTERVAL, POLL_MAX_INTERVAL = POLL_MAX_INTERVAL, POLL_MIN_INTERVAL
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
