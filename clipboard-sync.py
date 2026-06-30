@@ -10,6 +10,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from argparse import ArgumentParser
 from enum import Enum
@@ -341,10 +342,10 @@ def detect_wayland(state: ClipState) -> bool:
     return True
 
 
-def main_loop(state: ClipState):
+def main_loop(state: ClipState, shutdown_event: threading.Event | None = None):
     interval = POLL_MIN_INTERVAL
 
-    while True:
+    while not (shutdown_event and shutdown_event.is_set()):
         if state.lock != SyncDirection.NONE:
             time.sleep(0.2)
             continue
@@ -356,7 +357,12 @@ def main_loop(state: ClipState):
             interval = POLL_MIN_INTERVAL
         else:
             interval = min(interval + POLL_STEP, POLL_MAX_INTERVAL)
-        time.sleep(interval)
+
+        # Use shorter sleep so we can respond to shutdown quickly
+        if shutdown_event:
+            shutdown_event.wait(timeout=interval)
+        else:
+            time.sleep(interval)
 
 
 # ─── Entry point ─────────────────────────────────────────────────────────────
@@ -370,13 +376,17 @@ def main():
     setup_logging(verbose=args.verbose, log_file=args.log_file)
     log.info("Clipboard bridge starting")
 
-    # Graceful shutdown
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
+    # Graceful shutdown: set flag and let main_loop exit after current sync
+    shutdown_event = threading.Event()
+    def _shutdown(*_):
+        log.info("Shutting down...")
+        shutdown_event.set()
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
 
     state = ClipState()
     state.init()
-    main_loop(state)
+    main_loop(state, shutdown_event)
 
 
 if __name__ == "__main__":
