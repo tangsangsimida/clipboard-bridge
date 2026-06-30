@@ -338,8 +338,9 @@ def detect_wayland(state: ClipState) -> bool:
     if wl_types_hash == state.wl_types_hash and wl_hash == state.wl_hash:
         return False
 
-    if IMG_MIME in wl_types:
-        state.sync_image_to_x11(IMG_MIME)
+    img_type = next((t for t in wl_types if t.startswith("image/")), None)
+    if img_type:
+        state.sync_image_to_x11(img_type)
     elif GNOME_FILE_MIME in wl_types:
         raw = wl_paste(GNOME_FILE_MIME).decode("utf-8", errors="replace")
         lines = raw.strip().split("\n")
