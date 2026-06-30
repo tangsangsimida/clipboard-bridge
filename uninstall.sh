@@ -13,7 +13,7 @@ systemctl --user stop clipboard-bridge 2>/dev/null || true
 systemctl --user disable clipboard-bridge 2>/dev/null || true
 
 # 删除文件
-rm -f "$BIN_DIR/clipboard-sync.sh"
+rm -f "$BIN_DIR/clipboard-sync.py"
 rm -f "$SERVICE_DIR/clipboard-bridge.service"
 
 # 重载 systemd

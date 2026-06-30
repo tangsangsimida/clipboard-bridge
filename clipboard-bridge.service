@@ -4,7 +4,7 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/clipboard-sync.sh
+ExecStart=%h/.local/bin/clipboard-sync.py
 Restart=always
 RestartSec=2
 

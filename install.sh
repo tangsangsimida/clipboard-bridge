@@ -13,8 +13,8 @@ echo "Installing Clipboard Bridge..."
 mkdir -p "$BIN_DIR" "$SERVICE_DIR"
 
 # 复制脚本
-cp "$SCRIPT_DIR/clipboard-sync.sh" "$BIN_DIR/clipboard-sync.sh"
-chmod +x "$BIN_DIR/clipboard-sync.sh"
+cp "$SCRIPT_DIR/clipboard-sync.py" "$BIN_DIR/clipboard-sync.py"
+chmod +x "$BIN_DIR/clipboard-sync.py"
 
 # 复制服务文件
 cp "$SCRIPT_DIR/clipboard-bridge.service" "$SERVICE_DIR/clipboard-bridge.service"
@@ -22,7 +22,7 @@ cp "$SCRIPT_DIR/clipboard-bridge.service" "$SERVICE_DIR/clipboard-bridge.service
 # 启用并启动服务
 systemctl --user daemon-reload
 systemctl --user enable clipboard-bridge
-systemctl --user start clipboard-bridge
+systemctl --user restart clipboard-bridge
 
 echo "Installed successfully!"
 echo "Service status: $(systemctl --user is-active clipboard-bridge)"
