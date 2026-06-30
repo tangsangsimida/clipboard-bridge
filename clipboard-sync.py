@@ -69,22 +69,34 @@ def setup_logging(verbose: bool = False, log_file: str | None = None) -> None:
 
 # ─── Clipboard helpers ───────────────────────────────────────────────────────
 
-def run(cmd: list[str], input_data: bytes | None = None, capture: bool = True) -> bytes:
-    """Run a command, return stdout. Log errors at debug level."""
-    try:
-        r = subprocess.run(cmd, input=input_data, capture_output=capture, timeout=2)
-        if r.returncode != 0 and r.stderr:
-            log.debug("cmd %s exited %d: %s", cmd[0], r.returncode, r.stderr.decode(errors="replace").strip())
-        return r.stdout if capture else b""
-    except subprocess.TimeoutExpired:
-        log.debug("cmd %s timed out", cmd[0])
-        return b""
-    except FileNotFoundError:
-        log.debug("cmd %s not found", cmd[0])
-        return b""
-    except OSError as e:
-        log.debug("cmd %s error: %s", cmd[0], e)
-        return b""
+def run(cmd: list[str], input_data: bytes | None = None, capture: bool = True, retries: int = 0) -> bytes:
+    """Run a command, return stdout. Log errors at debug level. Retries on failure."""
+    for attempt in range(retries + 1):
+        try:
+            r = subprocess.run(cmd, input=input_data, capture_output=capture, timeout=2)
+            if r.returncode == 0:
+                return r.stdout if capture else b""
+            if attempt < retries:
+                log.debug("cmd %s exited %d, retrying (%d/%d)", cmd[0], r.returncode, attempt + 1, retries)
+                time.sleep(0.05)
+                continue
+            if r.stderr:
+                log.debug("cmd %s exited %d: %s", cmd[0], r.returncode, r.stderr.decode(errors="replace").strip())
+            return r.stdout if capture else b""
+        except subprocess.TimeoutExpired:
+            if attempt < retries:
+                log.debug("cmd %s timed out, retrying (%d/%d)", cmd[0], attempt + 1, retries)
+                time.sleep(0.05)
+                continue
+            log.debug("cmd %s timed out", cmd[0])
+            return b""
+        except FileNotFoundError:
+            log.debug("cmd %s not found", cmd[0])
+            return b""
+        except OSError as e:
+            log.debug("cmd %s error: %s", cmd[0], e)
+            return b""
+    return b""
 
 
 def xclip_get_targets() -> list[str]:
@@ -97,7 +109,7 @@ def xclip_get(mime: str) -> bytes:
 
 
 def xclip_set(data: bytes, mime: str) -> None:
-    run(["xclip", "-selection", "clipboard", "-t", mime], input_data=data, capture=False)
+    run(["xclip", "-selection", "clipboard", "-t", mime], input_data=data, capture=False, retries=2)
 
 
 def wl_paste_types() -> list[str]:
@@ -118,7 +130,7 @@ def wl_copy(data: bytes, mime: str | None = None) -> None:
     cmd = ["wl-copy"]
     if mime:
         cmd.extend(["--type", mime])
-    run(cmd, input_data=data, capture=False)
+    run(cmd, input_data=data, capture=False, retries=2)
 
 
 def wl_paste_types_and_text() -> tuple[list[str], bytes]:
