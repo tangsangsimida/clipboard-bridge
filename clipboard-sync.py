@@ -156,6 +156,7 @@ class ClipState:
         log.debug("Image→WL: %s (%d bytes)", mime, len(data))
         self.lock = "x2w"
         self.x11_img_hash = h
+        self.wl_img_hash = h
         wl_copy(data, mime)
         self.lock = ""
 
@@ -197,6 +198,7 @@ class ClipState:
         log.debug("Image→X11: %s (%d bytes)", mime, len(data))
         self.lock = "w2x"
         self.wl_img_hash = h
+        self.x11_img_hash = h
         xclip_set(data, mime)
         self.lock = ""
 
