@@ -274,6 +274,66 @@ def detect_x11_image(targets: list[str]) -> str | None:
 
 # ─── Main loop ───────────────────────────────────────────────────────────────
 
+def detect_x11(state: ClipState) -> bool:
+    """Detect X11 clipboard changes and sync to Wayland. Returns True if changed."""
+    x11_raw = xclip_get("UTF8_STRING")
+    x11_hash = fast_hash(x11_raw)
+
+    if x11_hash == state.x11_hash:
+        return False
+
+    targets = xclip_get_targets()
+    x11_text = x11_raw.decode("utf-8", errors="replace")
+
+    if URI_LIST_MIME in targets:
+        uris = xclip_get(URI_LIST_MIME).decode("utf-8", errors="replace")
+        if uris.strip():
+            state.sync_uri_to_wayland(uris)
+    elif img_mime := detect_x11_image(targets):
+        state.sync_image_to_wayland(img_mime)
+    elif file_uris := detect_x11_files(x11_text):
+        state.sync_uri_to_wayland(file_uris)
+    else:
+        state.sync_text_to_wayland(x11_text)
+
+    state.x11_hash = x11_hash
+    return True
+
+
+def detect_wayland(state: ClipState) -> bool:
+    """Detect Wayland clipboard changes and sync to X11. Returns True if changed."""
+    wl_types = wl_paste_types()
+    wl_types_hash = fast_hash("\n".join(wl_types).encode())
+    wl_raw = wl_paste(no_newline=True)
+    wl_hash = fast_hash(wl_raw)
+
+    if wl_types_hash == state.wl_types_hash and wl_hash == state.wl_hash:
+        return False
+
+    if IMG_MIME in wl_types:
+        state.sync_image_to_x11(IMG_MIME)
+    elif GNOME_FILE_MIME in wl_types:
+        raw = wl_paste(GNOME_FILE_MIME).decode("utf-8", errors="replace")
+        lines = raw.strip().split("\n")
+        if lines and lines[0].strip() in ("copy", "cut"):
+            uris = "\n".join(lines[1:])
+            if uris.strip():
+                state.sync_uri_to_x11(uris)
+        else:
+            log.debug("Invalid GNOME format: %s", raw[:50])
+    elif URI_LIST_MIME in wl_types:
+        uris = wl_paste(URI_LIST_MIME).decode("utf-8", errors="replace")
+        if uris.strip():
+            state.sync_uri_to_x11(uris)
+    else:
+        text = wl_raw.decode("utf-8", errors="replace")
+        state.sync_text_to_x11(text)
+
+    state.wl_hash = wl_hash
+    state.wl_types_hash = wl_types_hash
+    return True
+
+
 def main_loop(state: ClipState):
     interval = POLL_MIN_INTERVAL
 
@@ -282,71 +342,13 @@ def main_loop(state: ClipState):
             time.sleep(0.2)
             continue
 
-        idle = True
+        x11_changed = detect_x11(state)
+        wl_changed = detect_wayland(state)
 
-        # ── X11 detection ──
-        x11_raw = xclip_get("UTF8_STRING")
-        x11_hash = fast_hash(x11_raw)
-
-        if x11_hash != state.x11_hash:
-            targets = xclip_get_targets()
-            x11_text = x11_raw.decode("utf-8", errors="replace")
-
-            if URI_LIST_MIME in targets:
-                uris = xclip_get(URI_LIST_MIME).decode("utf-8", errors="replace")
-                if uris.strip():
-                    state.sync_uri_to_wayland(uris)
-                    state.x11_hash = x11_hash
-                    idle = False
-            elif (img_mime := detect_x11_image(targets)):
-                state.sync_image_to_wayland(img_mime)
-                state.x11_hash = x11_hash
-                idle = False
-            elif (file_uris := detect_x11_files(x11_text)):
-                state.sync_uri_to_wayland(file_uris)
-                state.x11_hash = x11_hash
-                idle = False
-            else:
-                state.sync_text_to_wayland(x11_text)
-                state.x11_hash = x11_hash
-                idle = False
-
-        # ── Wayland detection ──
-        wl_types = wl_paste_types()
-        wl_types_hash = fast_hash("\n".join(wl_types).encode())
-        wl_raw = wl_paste(no_newline=True)
-        wl_hash = fast_hash(wl_raw)
-
-        if wl_types_hash != state.wl_types_hash or wl_hash != state.wl_hash:
-            if IMG_MIME in wl_types:
-                state.sync_image_to_x11(IMG_MIME)
-            elif GNOME_FILE_MIME in wl_types:
-                raw = wl_paste(GNOME_FILE_MIME).decode("utf-8", errors="replace")
-                lines = raw.strip().split("\n")
-                # Validate GNOME format: first line must be "copy" or "cut"
-                if lines and lines[0].strip() in ("copy", "cut"):
-                    uris = "\n".join(lines[1:])
-                    if uris.strip():
-                        state.sync_uri_to_x11(uris)
-                else:
-                    log.debug("Invalid GNOME format: %s", raw[:50])
-            elif URI_LIST_MIME in wl_types:
-                uris = wl_paste(URI_LIST_MIME).decode("utf-8", errors="replace")
-                if uris.strip():
-                    state.sync_uri_to_x11(uris)
-            else:
-                text = wl_raw.decode("utf-8", errors="replace")
-                state.sync_text_to_x11(text)
-
-            state.wl_hash = wl_hash
-            state.wl_types_hash = wl_types_hash
-            idle = False
-
-        # ── Adaptive polling ──
-        if idle:
-            interval = min(interval + POLL_STEP, POLL_MAX_INTERVAL)
-        else:
+        if x11_changed or wl_changed:
             interval = POLL_MIN_INTERVAL
+        else:
+            interval = min(interval + POLL_STEP, POLL_MAX_INTERVAL)
         time.sleep(interval)
 
 
