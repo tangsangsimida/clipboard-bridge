@@ -16,13 +16,35 @@ from pathlib import Path
 
 # ─── Configuration (override via environment variables) ──────────────────────
 
-POLL_MIN_INTERVAL = float(os.environ.get("CB_POLL_MIN", "0.3"))
-POLL_MAX_INTERVAL = float(os.environ.get("CB_POLL_MAX", "2.0"))
-POLL_STEP = float(os.environ.get("CB_POLL_STEP", "0.2"))
 IMG_MIME = "image/png"
 GNOME_FILE_MIME = "x-special/gnome-copied-files"
 URI_LIST_MIME = "text/uri-list"
 HOME = Path.home()
+
+
+def _env_float(key: str, default: float, min_val: float = 0.0) -> float:
+    """Read a float from environment variable with validation."""
+    raw = os.environ.get(key)
+    if raw is None:
+        return default
+    try:
+        val = float(raw)
+        if val < min_val:
+            log.warning("环境变量 %s=%s 小于最小值 %s，使用默认值 %s", key, raw, min_val, default)
+            return default
+        return val
+    except ValueError:
+        log.warning("环境变量 %s=%s 不是有效数字，使用默认值 %s", key, raw, default)
+        return default
+
+
+POLL_MIN_INTERVAL = _env_float("CB_POLL_MIN", 0.3, min_val=0.05)
+POLL_MAX_INTERVAL = _env_float("CB_POLL_MAX", 2.0, min_val=0.1)
+POLL_STEP = _env_float("CB_POLL_STEP", 0.2, min_val=0.01)
+
+if POLL_MIN_INTERVAL > POLL_MAX_INTERVAL:
+    log.warning("CB_POLL_MIN (%s) > CB_POLL_MAX (%s)，自动调整", POLL_MIN_INTERVAL, POLL_MAX_INTERVAL)
+    POLL_MIN_INTERVAL, POLL_MAX_INTERVAL = POLL_MAX_INTERVAL, POLL_MIN_INTERVAL
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 
