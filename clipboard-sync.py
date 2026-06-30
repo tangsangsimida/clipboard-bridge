@@ -118,8 +118,9 @@ def wl_copy(data: bytes, mime: str | None = None):
     run(cmd, input_data=data, capture=False)
 
 
-def md5(data: bytes) -> str:
-    return hashlib.md5(data).hexdigest()
+def fast_hash(data: bytes) -> str:
+    """Fast hash: length prefix + md5. Length difference alone can short-circuit comparison."""
+    return f"{len(data)}:{hashlib.md5(data).hexdigest()}"
 
 
 # ─── Sync functions ──────────────────────────────────────────────────────────
@@ -140,16 +141,16 @@ class ClipState:
         x11 = xclip_get("UTF8_STRING")
         wl = wl_paste(no_newline=True)
         wl_types = "\n".join(wl_paste_types())
-        self.x11_hash = md5(x11)
-        self.wl_hash = md5(wl)
-        self.wl_types_hash = md5(wl_types.encode())
+        self.x11_hash = fast_hash(x11)
+        self.wl_hash = fast_hash(wl)
+        self.wl_types_hash = fast_hash(wl_types.encode())
         log.debug("Init: x11=%s wl=%s types=%s", self.x11_hash[:8], self.wl_hash[:8], self.wl_types_hash[:8])
 
     def sync_uri_to_wayland(self, uris: str):
         """Sync file URIs to Wayland as x-special/gnome-copied-files."""
         clean = uris.replace("\r", "")
         wl_content = f"copy\n{clean}\n"
-        h = md5(wl_content.encode())
+        h = fast_hash(wl_content.encode())
         if h == self.wl_hash:
             return
         log.debug("URI→WL: %s", clean.strip().split("\n")[0])
@@ -157,13 +158,13 @@ class ClipState:
         self.wl_hash = h
         # Update source hash (X11 side) to prevent feedback loop
         x11_content = clean.replace("\n", "\r\n") + "\r\n"
-        self.x11_hash = md5(x11_content.encode())
+        self.x11_hash = fast_hash(x11_content.encode())
         wl_copy(wl_content.encode(), GNOME_FILE_MIME)
         self.lock = ""
 
     def sync_text_to_wayland(self, text: str):
         """Sync plain text to Wayland."""
-        h = md5(text.encode())
+        h = fast_hash(text.encode())
         if h == self.wl_hash:
             return
         log.debug("Text→WL: %s", text[:50])
@@ -178,7 +179,7 @@ class ClipState:
         data = xclip_get(mime)
         if not data:
             return
-        h = md5(data)
+        h = fast_hash(data)
         if h == self.x11_img_hash:
             return
         log.debug("Image→WL: %s (%d bytes)", mime, len(data))
@@ -192,20 +193,20 @@ class ClipState:
         """Sync file URIs to X11 as text/uri-list."""
         clean = uris.replace("\r", "")
         x11_content = clean.replace("\n", "\r\n") + "\r\n"
-        h = md5(x11_content.encode())
+        h = fast_hash(x11_content.encode())
         if h == self.x11_hash:
             return
         log.debug("URI→X11: %s", clean.strip().split("\n")[0])
         self.lock = "w2x"
         self.x11_hash = h
         # Update source hash (Wayland side) to prevent feedback loop
-        self.wl_hash = md5(uris.encode())
+        self.wl_hash = fast_hash(uris.encode())
         xclip_set(x11_content.encode(), URI_LIST_MIME)
         self.lock = ""
 
     def sync_text_to_x11(self, text: str):
         """Sync plain text to X11."""
-        h = md5(text.encode())
+        h = fast_hash(text.encode())
         if h == self.x11_hash:
             return
         log.debug("Text→X11: %s", text[:50])
@@ -220,7 +221,7 @@ class ClipState:
         data = wl_paste(mime)
         if not data:
             return
-        h = md5(data)
+        h = fast_hash(data)
         if h == self.wl_img_hash:
             return
         log.debug("Image→X11: %s (%d bytes)", mime, len(data))
@@ -278,7 +279,7 @@ def main_loop(state: ClipState):
 
         # ── X11 detection ──
         x11_raw = xclip_get("UTF8_STRING")
-        x11_hash = md5(x11_raw)
+        x11_hash = fast_hash(x11_raw)
 
         if x11_hash != state.x11_hash:
             targets = xclip_get_targets()
@@ -305,9 +306,9 @@ def main_loop(state: ClipState):
 
         # ── Wayland detection ──
         wl_types = wl_paste_types()
-        wl_types_hash = md5("\n".join(wl_types).encode())
+        wl_types_hash = fast_hash("\n".join(wl_types).encode())
         wl_raw = wl_paste(no_newline=True)
-        wl_hash = md5(wl_raw)
+        wl_hash = fast_hash(wl_raw)
 
         if wl_types_hash != state.wl_types_hash or wl_hash != state.wl_hash:
             if IMG_MIME in wl_types:
