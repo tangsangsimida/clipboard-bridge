@@ -30,7 +30,7 @@ sudo apt install xclip wl-clipboard
 ## 安装
 
 ```bash
-git clone https://github.com/Denn1s13/clipboard-bridge.git
+git clone https://github.com/tangsangsimida/clipboard-bridge.git
 cd clipboard-bridge
 chmod +x install.sh
 ./install.sh
