@@ -119,6 +119,15 @@ def wl_copy(data: bytes, mime: str | None = None):
     run(cmd, input_data=data, capture=False)
 
 
+def wl_paste_types_and_text() -> tuple[list[str], bytes]:
+    """Read Wayland types and text content in one shell call (2 subprocess → 1)."""
+    combined = run(["sh", "-c", r"wl-paste --list-types && printf '\0' && wl-paste --no-newline"])
+    parts = combined.split(b"\x00", 1)
+    types = parts[0].decode("utf-8", errors="replace").splitlines()
+    content = parts[1] if len(parts) > 1 else b""
+    return types, content
+
+
 def fast_hash(data: bytes) -> str:
     """Fast hash: length prefix + md5. Length difference alone can short-circuit comparison."""
     return f"{len(data)}:{hashlib.md5(data).hexdigest()}"
@@ -302,9 +311,8 @@ def detect_x11(state: ClipState) -> bool:
 
 def detect_wayland(state: ClipState) -> bool:
     """Detect Wayland clipboard changes and sync to X11. Returns True if changed."""
-    wl_types = wl_paste_types()
+    wl_types, wl_raw = wl_paste_types_and_text()
     wl_types_hash = fast_hash("\n".join(wl_types).encode())
-    wl_raw = wl_paste(no_newline=True)
     wl_hash = fast_hash(wl_raw)
 
     if wl_types_hash == state.wl_types_hash and wl_hash == state.wl_hash:
@@ -326,8 +334,7 @@ def detect_wayland(state: ClipState) -> bool:
         if uris.strip():
             state.sync_uri_to_x11(uris)
     else:
-        text = wl_raw.decode("utf-8", errors="replace")
-        state.sync_text_to_x11(text)
+        state.sync_text_to_x11(wl_raw.decode("utf-8", errors="replace"))
 
     state.wl_hash = wl_hash
     state.wl_types_hash = wl_types_hash
