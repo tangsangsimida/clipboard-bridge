@@ -173,11 +173,11 @@ class ClipState:
             return
         log.debug("URI→WL: %s", clean.strip().split("\n")[0])
         self.lock = SyncDirection.X11_TO_WL
+        wl_copy(wl_content.encode(), GNOME_FILE_MIME)
         self.wl_hash = h
         # Update source hash (X11 side) to prevent feedback loop
         x11_content = clean.replace("\n", "\r\n") + "\r\n"
         self.x11_hash = fast_hash(x11_content.encode())
-        wl_copy(wl_content.encode(), GNOME_FILE_MIME)
         self.lock = SyncDirection.NONE
 
     def sync_text_to_wayland(self, text: str):
@@ -187,9 +187,9 @@ class ClipState:
             return
         log.debug("Text→WL: %s", text[:50])
         self.lock = SyncDirection.X11_TO_WL
+        wl_copy(text.encode())
         self.wl_hash = h
         self.x11_hash = h
-        wl_copy(text.encode())
         self.lock = SyncDirection.NONE
 
     def sync_image_to_wayland(self, mime: str):
@@ -202,9 +202,9 @@ class ClipState:
             return
         log.debug("Image→WL: %s (%d bytes)", mime, len(data))
         self.lock = SyncDirection.X11_TO_WL
+        wl_copy(data, mime)
         self.x11_img_hash = h
         self.wl_img_hash = h
-        wl_copy(data, mime)
         self.lock = SyncDirection.NONE
 
     def sync_uri_to_x11(self, uris: str):
@@ -216,10 +216,10 @@ class ClipState:
             return
         log.debug("URI→X11: %s", clean.strip().split("\n")[0])
         self.lock = SyncDirection.WL_TO_X11
+        xclip_set(x11_content.encode(), URI_LIST_MIME)
         self.x11_hash = h
         # Update source hash (Wayland side) to prevent feedback loop
         self.wl_hash = fast_hash(uris.encode())
-        xclip_set(x11_content.encode(), URI_LIST_MIME)
         self.lock = SyncDirection.NONE
 
     def sync_text_to_x11(self, text: str):
@@ -229,9 +229,9 @@ class ClipState:
             return
         log.debug("Text→X11: %s", text[:50])
         self.lock = SyncDirection.WL_TO_X11
+        xclip_set(text.encode(), "UTF8_STRING")
         self.x11_hash = h
         self.wl_hash = h
-        xclip_set(text.encode(), "UTF8_STRING")
         self.lock = SyncDirection.NONE
 
     def sync_image_to_x11(self, mime: str):
@@ -244,9 +244,9 @@ class ClipState:
             return
         log.debug("Image→X11: %s (%d bytes)", mime, len(data))
         self.lock = SyncDirection.WL_TO_X11
+        xclip_set(data, mime)
         self.wl_img_hash = h
         self.x11_img_hash = h
-        xclip_set(data, mime)
         self.lock = SyncDirection.NONE
 
 
