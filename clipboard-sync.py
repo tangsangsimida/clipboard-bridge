@@ -54,7 +54,7 @@ if POLL_MIN_INTERVAL > POLL_MAX_INTERVAL:
 log = logging.getLogger("clipboard-bridge")
 
 
-def setup_logging(verbose: bool = False, log_file: str | None = None):
+def setup_logging(verbose: bool = False, log_file: str | None = None) -> None:
     level = logging.DEBUG if verbose else logging.WARNING
     fmt = "%(asctime)s %(levelname)-5s %(message)s"
     datefmt = "%H:%M:%S"
@@ -96,7 +96,7 @@ def xclip_get(mime: str) -> bytes:
     return run(["xclip", "-selection", "clipboard", "-t", mime, "-o"])
 
 
-def xclip_set(data: bytes, mime: str):
+def xclip_set(data: bytes, mime: str) -> None:
     run(["xclip", "-selection", "clipboard", "-t", mime], input_data=data, capture=False)
 
 
@@ -114,7 +114,7 @@ def wl_paste(mime: str | None = None, no_newline: bool = False) -> bytes:
     return run(cmd)
 
 
-def wl_copy(data: bytes, mime: str | None = None):
+def wl_copy(data: bytes, mime: str | None = None) -> None:
     cmd = ["wl-copy"]
     if mime:
         cmd.extend(["--type", mime])
@@ -343,7 +343,7 @@ def detect_wayland(state: ClipState) -> bool:
     return True
 
 
-def main_loop(state: ClipState, shutdown_event: threading.Event | None = None):
+def main_loop(state: ClipState, shutdown_event: threading.Event | None = None) -> None:
     interval = POLL_MIN_INTERVAL
 
     while not (shutdown_event and shutdown_event.is_set()):
